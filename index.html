@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="fr" class="bg-app">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0e14" />
+  <title>TradeVision V3 — Analyse de marchés</title>
+  <meta name="description" content="Analyse technique temps réel : détection de patterns robuste, consensus directionnel, replay honnête et auto-trading simulé." />
+  <link rel="stylesheet" href="styles.css" />
+  <!-- ============================================================
+       PROXY YAHOO (forex & actions).
+       - En local (server.py / server.js) : laisser commenté → '/api/yahoo'.
+       - Sur GitHub Pages : décommenter et mettre l'URL de votre
+         Cloudflare Worker (voir cloudflare-worker/worker.js).
+       ============================================================ -->
+  <!-- <script>window.YAHOO_PROXY_URL = "https://VOTRE-WORKER.workers.dev/api/yahoo";</script> -->
+  <!-- lightweight-charts 4.x stable (standalone, expose window.LightweightCharts) -->
+  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <div id="app">
+
+    <!-- ===== HEADER ===== -->
+    <header class="topbar" role="banner">
+      <div class="topbar-left">
+        <button id="btn-symbol" class="symbol-btn" aria-haspopup="dialog" aria-label="Choisir un symbole">
+          <span id="symbol-name" class="symbol-name">BTCUSDT</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+        <div class="price-block">
+          <span id="live-price" class="live-price">—</span>
+          <span id="price-change" class="price-change">—</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button id="equity-readout" class="equity-readout hidden" aria-label="Compte simulé — ouvrir le panneau trading">
+          <span id="equity-val">$10,000</span>
+        </button>
+        <span id="conn-status" class="conn-dot conn-off" title="Statut connexion" aria-label="Statut connexion"></span>
+      </div>
+    </header>
+
+    <!-- ===== TIMEFRAMES ===== -->
+    <nav class="tf-bar" aria-label="Timeframes">
+      <div class="tf-scroll" id="tf-list" role="tablist"></div>
+    </nav>
+
+    <!-- ===== CHART AREA ===== -->
+    <main class="chart-area" role="main">
+      <div id="chart-container" class="chart-container">
+        <div id="chart" class="chart"></div>
+        <!-- Canvas overlay pour lignes structurelles des patterns (dessin pur, synchronisé au chart) -->
+        <canvas id="pattern-overlay" class="pattern-overlay" aria-hidden="true"></canvas>
+        <!-- Canvas pour dessin libre tactile -->
+        <canvas id="draw-canvas" class="draw-canvas hidden" aria-label="Zone de dessin libre"></canvas>
+        <!-- OHLC tooltip -->
+        <div id="ohlc-tooltip" class="ohlc-tooltip hidden" aria-live="polite"></div>
+        <!-- Etat vide / erreur -->
+        <div id="chart-empty" class="chart-empty hidden">
+          <p id="chart-empty-msg">Chargement des données…</p>
+          <button id="btn-retry" class="btn btn-primary hidden">Réessayer</button>
+        </div>
+        <!-- Badge consensus flottant -->
+        <div id="consensus-badge" class="consensus-badge hidden" aria-live="polite"></div>
+        <!-- Alerte proximité S/R -->
+        <div id="sr-alert" class="sr-alert hidden" aria-live="polite"></div>
+        <!-- Bouton réinitialiser la vue (fit auto) -->
+        <button id="btn-reset-view" class="reset-view-btn" aria-label="Réinitialiser la vue du graphique" title="Réinitialiser la vue">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8V5a2 2 0 0 1 2-2h3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/></svg>
+        </button>
+      </div>
+
+      <!-- ===== REPLAY BAR ===== -->
+      <div id="replay-bar" class="replay-bar hidden" aria-label="Contrôles du replay">
+        <div class="replay-progress-row">
+          <input id="replay-seek" type="range" min="0" max="100" value="0" class="replay-seek" aria-label="Position du replay" />
+        </div>
+        <div class="replay-controls-row">
+          <span id="replay-counter" class="replay-counter">0 / 0</span>
+          <div class="replay-buttons">
+            <button id="replay-step-back" class="icon-btn" aria-label="Reculer d'une bougie">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 12l8-6v12l-8-6zm-6-6h2v12H5V6z"/></svg>
+            </button>
+            <button id="replay-play" class="icon-btn icon-btn-primary" aria-label="Lecture / pause">
+              <svg id="replay-play-icon" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button id="replay-step" class="icon-btn" aria-label="Avancer d'une bougie">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 12L5 6v12l8-6zm4-6h2v12h-2V6z"/></svg>
+            </button>
+          </div>
+          <div class="replay-right">
+            <button id="replay-speed" class="chip" aria-label="Vitesse du replay">x1</button>
+            <button id="replay-exit" class="chip chip-danger" aria-label="Quitter le replay">Quitter</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ===== BOTTOM NAV ===== -->
+    <nav class="bottom-nav" role="navigation" aria-label="Navigation principale">
+      <button class="nav-btn nav-active" data-nav="chart" aria-label="Graphique">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+        <span>Chart</span>
+      </button>
+      <button class="nav-btn" data-nav="patterns" aria-label="Patterns détectés">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12h4l3-8 4 16 3-8h6"/></svg>
+        <span>Patterns</span>
+        <span id="patterns-count-badge" class="nav-badge hidden">0</span>
+      </button>
+      <button class="nav-btn" data-nav="draw" aria-label="Dessin libre">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+        <span>Dessin</span>
+      </button>
+      <button class="nav-btn" data-nav="replay" aria-label="Mode replay">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+        <span>Replay</span>
+      </button>
+      <button class="nav-btn" data-nav="trading" aria-label="Tableau de trading">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+        <span>Trading</span>
+      </button>
+    </nav>
+
+    <!-- ===== BOTTOM SHEET : SYMBOLES ===== -->
+    <div id="sheet-symbols" class="sheet hidden" role="dialog" aria-modal="true" aria-label="Sélection du symbole">
+      <div class="sheet-backdrop" data-close="sheet-symbols"></div>
+      <div class="sheet-panel">
+        <div class="sheet-handle"></div>
+        <h2 class="sheet-title">Symboles</h2>
+        <div class="seg-control" id="symbol-categories" role="tablist">
+          <button class="seg-btn seg-active" data-cat="crypto" role="tab">Crypto</button>
+          <button class="seg-btn" data-cat="forex" role="tab">Forex</button>
+          <button class="seg-btn" data-cat="stocks" role="tab">Actions</button>
+        </div>
+        <div id="symbol-list" class="symbol-list" role="listbox"></div>
+      </div>
+    </div>
+
+    <!-- ===== BOTTOM SHEET : PATTERNS ===== -->
+    <div id="sheet-patterns" class="sheet hidden" role="dialog" aria-modal="true" aria-label="Patterns détectés">
+      <div class="sheet-backdrop" data-close="sheet-patterns"></div>
+      <div class="sheet-panel sheet-panel-tall">
+        <div class="sheet-handle"></div>
+        <h2 class="sheet-title">Analyse &amp; Consensus</h2>
+        <div id="consensus-panel" class="consensus-panel">
+          <div class="consensus-bar-wrap">
+            <div class="consensus-bar">
+              <div id="consensus-bull" class="consensus-bull" style="width:50%"></div>
+            </div>
+            <div class="consensus-labels">
+              <span class="text-bull">Bull</span>
+              <span id="consensus-verdict" class="consensus-verdict">Neutre</span>
+              <span class="text-bear">Bear</span>
+            </div>
+          </div>
+          <div id="consensus-reasons" class="consensus-reasons"></div>
+        </div>
+        <h3 class="sheet-subtitle">Patterns actifs <span id="patterns-count" class="muted"></span></h3>
+        <div id="patterns-list" class="patterns-list">
+          <p class="empty-state">Aucun pattern détecté pour le moment.<br/><span class="muted">Le scanner analyse automatiquement plusieurs fenêtres temporelles.</span></p>
+        </div>
+        <h3 class="sheet-subtitle">Niveaux S/R</h3>
+        <div id="sr-list" class="sr-list"></div>
+      </div>
+    </div>
+
+    <!-- ===== BOTTOM SHEET : DESSIN ===== -->
+    <div id="sheet-draw" class="sheet hidden" role="dialog" aria-modal="true" aria-label="Dessin libre">
+      <div class="sheet-backdrop" data-close="sheet-draw"></div>
+      <div class="sheet-panel">
+        <div class="sheet-handle"></div>
+        <h2 class="sheet-title">Dessin libre</h2>
+        <p class="sheet-text">Dessinez une forme directement sur le graphique. Le système la reconnaît et projette le pattern correspondant.</p>
+        <div id="draw-result" class="draw-result hidden"></div>
+        <div class="sheet-actions">
+          <button id="btn-draw-start" class="btn btn-primary">Commencer à dessiner</button>
+          <button id="btn-draw-clear" class="btn btn-ghost">Effacer</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== SIDE PANEL : TRADING DASHBOARD ===== -->
+    <div id="panel-trading" class="side-panel hidden" role="dialog" aria-modal="true" aria-label="Tableau de trading">
+      <div class="sheet-backdrop" data-close="panel-trading"></div>
+      <div class="side-panel-content">
+        <div class="side-panel-header">
+          <h2 class="sheet-title">Trading simulé</h2>
+          <button class="icon-btn" data-close="panel-trading" aria-label="Fermer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="wallet-card">
+          <div class="wallet-row">
+            <div><span class="muted small">Wallet</span><div id="td-wallet" class="wallet-value">$10,000</div></div>
+            <div class="text-right"><span class="muted small">PnL total</span><div id="td-pnl" class="wallet-pnl">$0 (0%)</div></div>
+          </div>
+          <div class="wallet-stats">
+            <div class="stat"><span class="muted small">Précision</span><span id="td-accuracy">—</span></div>
+            <div class="stat"><span class="muted small">Trades</span><span id="td-trades">0</span></div>
+            <div class="stat"><span class="muted small">Ouverts</span><span id="td-open">0L / 0S</span></div>
+            <div class="stat"><span class="muted small">Exposition</span><span id="td-exposure">0%</span></div>
+          </div>
+        </div>
+        <div class="td-toggle-row">
+          <span>Auto-trading (replay)</span>
+          <button id="td-toggle" class="toggle" role="switch" aria-checked="false" aria-label="Activer l'auto-trading"><span class="toggle-knob"></span></button>
+        </div>
+        <h3 class="sheet-subtitle">Positions ouvertes</h3>
+        <div id="td-positions" class="td-list"><p class="empty-state small">Aucune position ouverte.</p></div>
+        <h3 class="sheet-subtitle">Historique</h3>
+        <div id="td-history" class="td-list"><p class="empty-state small">Aucun trade clos. Lancez un replay avec l'auto-trading activé.</p></div>
+      </div>
+    </div>
+
+    <!-- ===== MODALE REPLAY CONFIG ===== -->
+    <div id="modal-replay" class="modal hidden" role="dialog" aria-modal="true" aria-label="Configurer le replay">
+      <div class="sheet-backdrop" data-close="modal-replay"></div>
+      <div class="modal-content">
+        <h2 class="sheet-title">Mode Replay</h2>
+        <p class="sheet-text">Rejouez l'historique bougie par bougie. Toutes les décisions (patterns, consensus, trades) n'utilisent que les données passées — zéro lookahead.</p>
+        <label class="field-label" for="replay-start-pct">Point de départ : <span id="replay-start-label">30%</span> de l'historique</label>
+        <input id="replay-start-pct" type="range" min="10" max="80" value="30" class="replay-seek" />
+        <div class="sheet-actions">
+          <button id="btn-replay-start" class="btn btn-primary">Démarrer le replay</button>
+          <button class="btn btn-ghost" data-close="modal-replay">Annuler</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== TOASTS ===== -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
