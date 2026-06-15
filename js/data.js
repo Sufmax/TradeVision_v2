@@ -160,13 +160,12 @@ function resampleCandles(candles, bucketSec) {
   return out;
 }
 
-/* Base du proxy Yahoo.
-   - En local (server.py / server.js) : laisser vide → '/api/yahoo'.
-   - Sur GitHub Pages : définir window.YAHOO_PROXY_URL dans index.html
-     vers votre Cloudflare Worker, ex. 'https://xxx.workers.dev/api/yahoo'.
-   Le Worker accepte les mêmes paramètres (?symbol=&interval=&range=). */
+/* Base du proxy Yahoo : Cloudflare Worker (forex & actions).
+   Le Worker accepte les mêmes paramètres (?symbol=&interval=&range=).
+   Surchargeable via window.YAHOO_PROXY_URL dans index.html si besoin. */
 const YAHOO_PROXY =
-  (typeof window !== 'undefined' && window.YAHOO_PROXY_URL) || '/api/yahoo';
+  (typeof window !== 'undefined' && window.YAHOO_PROXY_URL) ||
+  'https://cf-tradevision-yahoo-proxy.sufmax-su.workers.dev/api/yahoo';
 
 /** Appel proxy Yahoo → { meta, candles } (bougies au format interne). */
 async function fetchYahooRaw(yahooSymbol, interval, range) {
