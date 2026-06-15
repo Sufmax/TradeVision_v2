@@ -4,7 +4,7 @@
   "private": true,
   "description": "TradeVision V3 - Analyse de marches, detection de patterns robuste, replay honnete, auto-trading simule. Vanilla JS, zero build step.",
   "scripts": {
-    "dev": "node server.js",
-    "start": "node server.js"
+    "dev": "npx --yes serve -l ${PORT:-3000} .",
+    "start": "npx --yes serve -l ${PORT:-3000} ."
   }
 }

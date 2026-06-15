@@ -7,12 +7,7 @@
   <title>TradeVision V3 — Analyse de marchés</title>
   <meta name="description" content="Analyse technique temps réel : détection de patterns robuste, consensus directionnel, replay honnête et auto-trading simulé." />
   <link rel="stylesheet" href="styles.css" />
-  <!-- ============================================================
-       PROXY YAHOO (forex & actions).
-       - En local (server.py / server.js) : laisser commenté → '/api/yahoo'.
-       - Sur GitHub Pages : décommenter et mettre l'URL de votre
-         Cloudflare Worker (voir cloudflare-worker/worker.js).
-       ============================================================ -->
+  <!-- Proxy Yahoo (forex & actions) : Cloudflare Worker. -->
   <script>window.YAHOO_PROXY_URL = "https://cf-tradevision-yahoo-proxy.sufmax-su.workers.dev/api/yahoo";</script>
   <!-- lightweight-charts 4.x stable (standalone, expose window.LightweightCharts) -->
   <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
